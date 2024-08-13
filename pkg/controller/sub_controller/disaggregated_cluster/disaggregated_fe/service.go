@@ -38,7 +38,7 @@ func (dfc *DisaggregatedFEController) newService(ddc *dv1.DorisDisaggregatedClus
 			Selector:        dfc.newFEPodsSelector(ddc.Name),
 			Type:            corev1.ServiceTypeClusterIP,
 			Ports:           ports,
-			SessionAffinity: corev1.ServiceAffinityClientIP,
+			SessionAffinity: corev1.ServiceAffinityNone,
 		},
 	}
 
