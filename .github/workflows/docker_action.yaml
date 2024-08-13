@@ -59,7 +59,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ secrets.CONTAINER_REGISTRY }}/${{ secrets.CONTAINER_REGISTRY_ORGANIZATION }}/doris.k8s-operator:{{ steps.meta.outputs.tags }}
+          tags: ${{ secrets.CONTAINER_REGISTRY }}/${{ secrets.CONTAINER_REGISTRY_ORGANIZATION }}/doris.k8s-operator:${{ steps.meta.outputs.tags }}
       # - name: Build debug and push
       #   uses: docker/build-push-action@v5
       #   with:
