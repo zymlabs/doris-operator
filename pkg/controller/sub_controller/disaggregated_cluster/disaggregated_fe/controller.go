@@ -20,6 +20,9 @@ package disaggregated_fe
 import (
 	"bytes"
 	"context"
+	"strconv"
+	"strings"
+
 	dv1 "github.com/selectdb/doris-operator/api/disaggregated/cluster/v1"
 	"github.com/selectdb/doris-operator/pkg/common/utils/k8s"
 	"github.com/selectdb/doris-operator/pkg/common/utils/resource"
@@ -33,8 +36,6 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
-	"strings"
 )
 
 var _ sub_controller.DisaggregatedSubController = &DisaggregatedFEController{}
@@ -68,6 +69,7 @@ func (dfc *DisaggregatedFEController) Sync(ctx context.Context, obj client.Objec
 
 	confMap := dfc.getConfigValuesFromConfigMaps(ddc.Namespace, ddc.Spec.FeSpec.ConfigMaps)
 	svc := dfc.newService(ddc, confMap)
+	headlessSvc := dfc.newHeadlessService(ddc, confMap)
 
 	st := dfc.NewStatefulset(ddc, confMap)
 	dfc.initialFEStatus(ddc)
@@ -80,6 +82,16 @@ func (dfc *DisaggregatedFEController) Sync(ctx context.Context, obj client.Objec
 		klog.Errorf("disaggregatedFEController reconcile service namespace %s name %s failed, err=%s", svc.Namespace, svc.Name, err.Error())
 		return err
 	}
+
+	event, err = dfc.reconcileService(ctx, headlessSvc)
+	if err != nil {
+		if event != nil {
+			dfc.k8sRecorder.Event(ddc, string(event.Type), string(event.Reason), event.Message)
+		}
+		klog.Errorf("disaggregatedFEController reconcile headless service namespace %s name %s failed, err=%s", headlessSvc.Namespace, headlessSvc.Name, err.Error())
+		return err
+	}
+
 	event, err = dfc.reconcileStatefulset(ctx, st)
 	if err != nil {
 		if event != nil {
@@ -101,9 +113,16 @@ func (dfc *DisaggregatedFEController) ClearResources(ctx context.Context, obj cl
 
 	statefulsetName := ddc.GetFEStatefulsetName()
 	serviceName := ddc.GetFEServiceName()
+	headlessServiceName := serviceName + "-headless"
 
 	if err := k8s.DeleteService(ctx, dfc.k8sClient, ddc.Namespace, serviceName); err != nil {
 		klog.Errorf("disaggregatedFEController delete service namespace %s name %s failed, err=%s", ddc.Namespace, serviceName, err.Error())
+		dfc.k8sRecorder.Event(ddc, string(sub_controller.EventWarning), string(sub_controller.FEServiceDeleteFailed), err.Error())
+		return false, err
+	}
+
+	if err := k8s.DeleteService(ctx, dfc.k8sClient, ddc.Namespace, headlessServiceName); err != nil {
+		klog.Errorf("disaggregatedFEController delete service namespace %s name %s failed, err=%s", ddc.Namespace, headlessServiceName, err.Error())
 		dfc.k8sRecorder.Event(ddc, string(sub_controller.EventWarning), string(sub_controller.FEServiceDeleteFailed), err.Error())
 		return false, err
 	}

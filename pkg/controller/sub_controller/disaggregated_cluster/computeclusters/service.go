@@ -37,9 +37,10 @@ func (dccs *DisaggregatedComputeClustersController) newService(ddc *dv1.DorisDis
 			OwnerReferences: []metav1.OwnerReference{resource.GetOwnerReference(ddc)},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: dccs.newCCPodsSelector(ddc.Name, ccClusterId),
-			Type:     corev1.ServiceTypeClusterIP,
-			Ports:    sps,
+			Selector:  dccs.newCCPodsSelector(ddc.Name, ccClusterId),
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: "None",
+			Ports:     sps,
 		},
 	}
 

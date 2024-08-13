@@ -90,7 +90,7 @@ func (dfc *DisaggregatedFEController) NewStatefulset(ddc *dv1.DorisDisaggregated
 			Replicas:             ddc.Spec.FeSpec.Replicas,
 			Selector:             &metav1.LabelSelector{MatchLabels: selector},
 			VolumeClaimTemplates: vcts,
-			ServiceName:          ddc.GetFEServiceName(),
+			ServiceName:          ddc.GetFEServiceName() + "-headless",
 			Template:             pts,
 			PodManagementPolicy:  appv1.ParallelPodManagement,
 		},
