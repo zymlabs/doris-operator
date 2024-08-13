@@ -29,13 +29,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: selectdb/doris.k8s-operator
+          images: zymlabs/doris.k8s-operator
 
       - name: Doris Debug meta
         id: debug_meta
         uses: docker/metadata-action@v5
         with:
-          images: selectdb/doris-debug-ubuntu
+          images: zymlabs/doris-debug-ubuntu
 
       - name: env 
         id: vars
@@ -59,12 +59,12 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-      - name: Build debug and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile_doris_debug
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.debug_meta.outputs.tags }}
+          tags: ${{ secrets.CONTAINER_REGISTRY }}/${{ steps.meta.outputs.tags }}
+      # - name: Build debug and push
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     file: Dockerfile_doris_debug
+      #     platforms: linux/amd64,linux/arm64
+      #     push: true
+      #     tags: ${{ secrets.CONTAINER_REGISTRY }}/${{ steps.debug_meta.outputs.tags }}
