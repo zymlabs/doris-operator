@@ -43,7 +43,7 @@ const (
 	LogPathKey               = "LOG_DIR"
 	LogStoreName             = "fe-log"
 	MetaStoreName            = "fe-meta"
-	DefaultStorageSize int64 = 107374182400
+	DefaultStorageSize int64 = 1073741824
 	basic_auth_path          = "/etc/basic_auth"
 	auth_volume_name         = "basic-auth"
 )

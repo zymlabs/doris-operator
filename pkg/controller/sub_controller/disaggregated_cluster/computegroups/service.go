@@ -35,8 +35,11 @@ func (dcgs *DisaggregatedComputeGroupsController) newService(ddc *dv1.DorisDisag
 	ob.Labels = dcgs.newCG2LayerSchedulerLabels(ddc.Namespace, uniqueId)
 
 	spec := &svc.Spec
+	spec.ClusterIP = "None"
 	spec.Selector = dcgs.newCGPodsSelector(ddc.Name, uniqueId)
 	spec.Ports = sps
+	spec.SessionAffinity = corev1.ServiceAffinityNone
+
 
 	if svcConf != nil && svcConf.Type != "" {
 		svc.Spec.Type = svcConf.Type

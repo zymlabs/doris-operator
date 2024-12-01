@@ -34,7 +34,7 @@ import (
 const (
 	DefaultCacheRootPath = "/opt/apache-doris/be/file_cache"
 	//default cache storage size: unit=B
-	DefaultCacheSize               int64 = 107374182400
+	DefaultCacheSize               int64 = 10737418240
 	FileCachePathKey                     = "file_cache_path"
 	FileCacheSubConfigPathKey            = "path"
 	FileCacheSubConfigTotalSizeKey       = "total_size"
