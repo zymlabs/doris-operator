@@ -39,6 +39,24 @@ type DorisDisaggregatedClusterSpec struct {
 	// the name of secret that type is `kubernetes.io/basic-auth` and contains keys username, password for management doris node in cluster as fe, be register.
 	// the password key is `password`. the username defaults to `root` and is omitempty.
 	AuthSecret string `json:"authSecret,omitempty"`
+
+	//administrator for register or drop component from fe cluster. adminUser for all component register and operator drop component.
+	//+Deprecated, from 1.4.1 please use secret config username and password.
+	AdminUser *AdminUser `json:"adminUser,omitempty"`
+
+	// decommission be or not. default value is false.
+	// if true, will decommission be node when scale down compute group.
+	// if false, will drop be node when scale down compute group.
+	EnableDecommission bool `json:"enableDecommission,omitempty"`
+}
+
+// AdminUser describe administrator for manage components in specified cluster.
+type AdminUser struct {
+	//the user name for admin service's node.
+	Name string `json:"name,omitempty"`
+
+	//password, login to doris db.
+	Password string `json:"password,omitempty"`
 }
 
 type MetaService struct {
@@ -150,6 +168,10 @@ type CommonSpec struct {
 
 	//SystemInitialization for fe, be setting system parameters.
 	SystemInitialization *SystemInitialization `json:"systemInitialization,omitempty"`
+
+	// Multi Secret for pod.
+	// +optional
+	Secrets []Secret `json:"secrets,omitempty"`
 }
 
 type SystemInitialization struct {
@@ -184,7 +206,7 @@ type PersistentVolume struct {
 
 type Secret struct {
 	//specify the secret need to be mounted in deployed namespace.
-	Name string `json:"name,omitempty"`
+	SecretName string `json:"secretName,omitempty"`
 	//display the path of secret be mounted in pod.
 	MountPath string `json:"mountPath,omitempty"`
 }
@@ -290,15 +312,12 @@ type Phase string
 
 const (
 	Ready Phase = "Ready"
-	//Upgrading represents the spec of the service changed, service in smoothing upgrade.
-	Upgrading Phase = "Upgrading"
-	//Failed represents service failed to start, can't be accessed.
-	Failed Phase = "Failed"
 	//Creating represents service in creating stage.
 	Reconciling Phase = "Reconciling"
 
 	//Scaling represents service in Scaling.
 	Scaling         Phase = "Scaling"
+	Decommissioning Phase = "Decommissioning"
 	ScaleDownFailed Phase = "ScaleDownFailed"
 	ResumeFailed    Phase = "ResumeFailed"
 	SuspendFailed   Phase = "SuspendFailed"

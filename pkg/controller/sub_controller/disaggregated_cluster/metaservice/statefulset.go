@@ -108,6 +108,11 @@ func (dms *DisaggregatedMSController) NewPodTemplateSpec(ddc *v1.DorisDisaggrega
 	pts.Spec.Volumes = append(pts.Spec.Volumes, configVolumes...)
 	pts.Spec.Affinity = dms.ConstructDefaultAffinity(v1.DorisDisaggregatedClusterName, selector[v1.DorisDisaggregatedClusterName], ddc.Spec.MetaService.Affinity)
 
+	if len(ddc.Spec.MetaService.Secrets) != 0 {
+		secretVolumes, _ := resource.GetMultiSecretVolumeAndVolumeMountWithCommonSpec(&ddc.Spec.MetaService.CommonSpec)
+		pts.Spec.Volumes = append(pts.Spec.Volumes, secretVolumes...)
+	}
+
 	return pts
 }
 
@@ -190,7 +195,7 @@ func (dms *DisaggregatedMSController) getLogPath(confMap map[string]interface{})
 func (dms *DisaggregatedMSController) NewMSContainer(ddc *v1.DorisDisaggregatedCluster, cvs map[string]interface{}) corev1.Container {
 	c := resource.NewContainerWithCommonSpec(&ddc.Spec.MetaService.CommonSpec)
 
-	resource.LifeCycleWithPreStopScript(c.Lifecycle, sc.GetDisaggregatedPreStopScript(v1.DisaggregatedMS))
+	c.Lifecycle = resource.LifeCycleWithPreStopScript(c.Lifecycle, sc.GetDisaggregatedPreStopScript(v1.DisaggregatedMS))
 	cmd, args := sc.GetDisaggregatedCommand(v1.DisaggregatedMS)
 	c.Command = cmd
 	c.Args = args
@@ -208,6 +213,11 @@ func (dms *DisaggregatedMSController) NewMSContainer(ddc *v1.DorisDisaggregatedC
 		c.VolumeMounts = cmvms
 	} else {
 		c.VolumeMounts = append(c.VolumeMounts, cmvms...)
+	}
+
+	if len(ddc.Spec.MetaService.Secrets) != 0 {
+		_, secretVolumeMounts := resource.GetMultiSecretVolumeAndVolumeMountWithCommonSpec(&ddc.Spec.MetaService.CommonSpec)
+		c.VolumeMounts = append(c.VolumeMounts, secretVolumeMounts...)
 	}
 
 	return c

@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -14,17 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-package ms
+package resource
 
 import (
-	mv1 "github.com/apache/doris-operator/api/disaggregated/meta_v1"
-	"github.com/apache/doris-operator/pkg/common/utils/resource"
-	appv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"testing"
 )
 
-func (msc *Controller) buildMSStatefulSet(dms *mv1.DorisDisaggregatedMetaService) appv1.StatefulSet {
-	st := resource.NewDMSStatefulSet(dms, mv1.Component_MS)
-	st.Spec.Template = msc.buildMSPodTemplateSpec(dms)
-	return st
+func Test_GetDorisLoginInformation(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+		Data: map[string][]byte{
+			"username": []byte("admin"),
+			"password": []byte("123456"),
+		},
+	}
+	un, pd := GetDorisLoginInformation(secret)
+	if un != "admin" || pd != "123456" {
+		t.Errorf("getDorisLoginInformation failed.")
+	}
+}
+
+func Test_BuildDMSService(t *testing.T) {
+
 }

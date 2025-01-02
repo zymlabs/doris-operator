@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/FoundationDB/fdb-kubernetes-operator/api/v1beta2"
-	mv1 "github.com/apache/doris-operator/api/disaggregated/meta_v1"
 	dorisv1 "github.com/apache/doris-operator/api/doris/v1"
 	"github.com/apache/doris-operator/pkg/common/utils"
 	"github.com/apache/doris-operator/pkg/common/utils/resource"
@@ -70,6 +69,23 @@ func ApplyService(ctx context.Context, k8sclient client.Client, svc *corev1.Serv
 	return PatchClientObject(ctx, k8sclient, svc)
 }
 
+func ListServicesInNamespace(ctx context.Context, k8sclient client.Client, namespace string, selector map[string]string) ([]corev1.Service, error) {
+	var svcList corev1.ServiceList
+	if err := k8sclient.List(ctx, &svcList, client.InNamespace(namespace), client.MatchingLabels(selector)); err != nil {
+		return nil, err
+	}
+
+	return svcList.Items, nil
+}
+
+func ListStatefulsetInNamespace(ctx context.Context, k8sclient client.Client, namespace string, selector map[string]string) ([]appv1.StatefulSet, error) {
+	var stsList appv1.StatefulSetList
+	if err := k8sclient.List(ctx, &stsList, client.InNamespace(namespace), client.MatchingLabels(selector)); err != nil {
+		return nil, err
+	}
+	return stsList.Items, nil
+}
+
 // ApplyStatefulSet when the object is not exist, create object. if exist and statefulset have been updated, patch the statefulset.
 func ApplyStatefulSet(ctx context.Context, k8sclient client.Client, st *appv1.StatefulSet, equal StatefulSetEqual) error {
 	var est appv1.StatefulSet
@@ -92,6 +108,21 @@ func ApplyStatefulSet(ctx context.Context, k8sclient client.Client, st *appv1.St
 		return nil
 	}
 	return err
+}
+
+func ApplyDorisCluster(ctx context.Context, k8sclient client.Client, dcr *dorisv1.DorisCluster) error {
+	err := PatchClientObject(ctx, k8sclient, dcr)
+	if err == nil || apierrors.IsConflict(err) {
+		return nil
+	}
+
+	return err
+}
+
+func GetStatefulSet(ctx context.Context, k8sclient client.Client, namespace, name string) (*appv1.StatefulSet, error) {
+	var est appv1.StatefulSet
+	err := k8sclient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &est)
+	return &est, err
 }
 
 func CreateClientObject(ctx context.Context, k8sclient client.Client, object client.Object) error {
@@ -295,22 +326,6 @@ func GetConfig(ctx context.Context, k8sclient client.Client, configMapInfo *dori
 	}
 	res, resolveErr := resource.ResolveConfigMaps(configMaps, componentType)
 	return res, utils.MergeError(err, resolveErr)
-}
-
-func GetDisaggregatedMetaServiceConfigMaps(ctx context.Context, k8scient client.Client, namespace string, cms []mv1.ConfigMap) ([]*corev1.ConfigMap, error) {
-	var configMaps []*corev1.ConfigMap
-	errMessage := ""
-	for _, cm := range cms {
-		var configMap corev1.ConfigMap
-		if getErr := k8scient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: cm.Name}, &configMap); getErr != nil {
-			errMessage = errMessage + fmt.Sprintf("(name: %s, namespace: %s, err: %s), ", cm.Name, namespace, getErr.Error())
-		}
-		configMaps = append(configMaps, &configMap)
-	}
-	if errMessage != "" {
-		return configMaps, errors.New("Failed to get configmap: " + errMessage)
-	}
-	return configMaps, nil
 }
 
 // ApplyFoundationDBCluster apply FoundationDBCluster to apiserver.

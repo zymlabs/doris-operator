@@ -42,17 +42,23 @@ const (
 	LogPathKey                           = "LOG_DIR"
 	LogStoreName                         = "be-log"
 	StorageStorePreName                  = "be-storage"
+	basic_auth_path                      = "/etc/basic_auth"
+	auth_volume_name                     = "basic-auth"
 )
 
 // generate statefulset or service labels
 func (dcgs *DisaggregatedComputeGroupsController) newCG2LayerSchedulerLabels(ddcName /*DisaggregatedClusterName*/, uniqueId string) map[string]string {
-	return map[string]string{
-		dv1.DorisDisaggregatedClusterName:          ddcName,
-		dv1.DorisDisaggregatedComputeGroupUniqueId: uniqueId,
-		dv1.DorisDisaggregatedOwnerReference:       ddcName,
-	}
+	labels := dcgs.GetCG2LayerCommonSchedulerLabels(ddcName)
+	labels[dv1.DorisDisaggregatedComputeGroupUniqueId] = uniqueId
+	return labels
 }
 
+func (dcgs *DisaggregatedComputeGroupsController) GetCG2LayerCommonSchedulerLabels(ddcName string) map[string]string {
+	return map[string]string{
+		dv1.DorisDisaggregatedClusterName:    ddcName,
+		dv1.DorisDisaggregatedOwnerReference: ddcName,
+	}
+}
 func (dcgs *DisaggregatedComputeGroupsController) newCGPodsSelector(ddcName /*DisaggregatedClusterName*/, uniqueId string) map[string]string {
 	return map[string]string{
 		dv1.DorisDisaggregatedClusterName:          ddcName,
@@ -105,6 +111,22 @@ func (dcgs *DisaggregatedComputeGroupsController) NewPodTemplateSpec(ddc *dv1.Do
 	pts.Spec.Volumes = append(pts.Spec.Volumes, configVolumes...)
 	pts.Spec.Volumes = append(pts.Spec.Volumes, vs...)
 
+	if ddc.Spec.AuthSecret != "" {
+		pts.Spec.Volumes = append(pts.Spec.Volumes, corev1.Volume{
+			Name: auth_volume_name,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: ddc.Spec.AuthSecret,
+				},
+			},
+		})
+	}
+
+	if len(cg.Secrets) != 0 {
+		secretVolumes, _ := resource.GetMultiSecretVolumeAndVolumeMountWithCommonSpec(&cg.CommonSpec)
+		pts.Spec.Volumes = append(pts.Spec.Volumes, secretVolumes...)
+	}
+
 	cgUniqueId := selector[dv1.DorisDisaggregatedComputeGroupUniqueId]
 	pts.Spec.Affinity = dcgs.ConstructDefaultAffinity(dv1.DorisDisaggregatedComputeGroupUniqueId, cgUniqueId, pts.Spec.Affinity)
 
@@ -113,7 +135,7 @@ func (dcgs *DisaggregatedComputeGroupsController) NewPodTemplateSpec(ddc *dv1.Do
 
 func (dcgs *DisaggregatedComputeGroupsController) NewCGContainer(ddc *dv1.DorisDisaggregatedCluster, cvs map[string]interface{}, cg *dv1.ComputeGroup) corev1.Container {
 	c := resource.NewContainerWithCommonSpec(&cg.CommonSpec)
-	resource.LifeCycleWithPreStopScript(c.Lifecycle, sub.GetDisaggregatedPreStopScript(dv1.DisaggregatedBE))
+	c.Lifecycle = resource.LifeCycleWithPreStopScript(c.Lifecycle, sub.GetDisaggregatedPreStopScript(dv1.DisaggregatedBE))
 	cmd, args := sub.GetDisaggregatedCommand(dv1.DisaggregatedBE)
 	c.Command = cmd
 	c.Args = args
@@ -133,6 +155,20 @@ func (dcgs *DisaggregatedComputeGroupsController) NewCGContainer(ddc *dv1.DorisD
 	} else {
 		c.VolumeMounts = append(c.VolumeMounts, cmvms...)
 	}
+
+	// add basic auth secret volumeMount
+	if ddc.Spec.AuthSecret != "" {
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+			Name:      auth_volume_name,
+			MountPath: basic_auth_path,
+		})
+	}
+
+	if len(cg.Secrets) != 0 {
+		_, secretVolumeMounts := resource.GetMultiSecretVolumeAndVolumeMountWithCommonSpec(&cg.CommonSpec)
+		c.VolumeMounts = append(c.VolumeMounts, secretVolumeMounts...)
+	}
+
 	return c
 }
 
@@ -325,5 +361,14 @@ func (dcgs *DisaggregatedComputeGroupsController) newSpecificEnvs(ddc *dv1.Doris
 		corev1.EnvVar{Name: resource.COMPUTE_GROUP_NAME, Value: ddc.GetCGName(cg)},
 		corev1.EnvVar{Name: resource.ENV_FE_ADDR, Value: feAddr},
 		corev1.EnvVar{Name: resource.ENV_FE_PORT, Value: fqpStr})
+
+	// add user and password envs
+	if ddc.Spec.AdminUser != nil {
+		cgEnvs = append(cgEnvs,
+			corev1.EnvVar{Name: resource.ADMIN_USER, Value: ddc.Spec.AdminUser.Name},
+			corev1.EnvVar{Name: resource.ADMIN_PASSWD, Value: ddc.Spec.AdminUser.Password},
+		)
+	}
+
 	return cgEnvs
 }

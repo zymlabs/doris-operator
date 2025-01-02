@@ -161,6 +161,7 @@ func NewPodTemplateSpec(dcr *v1.DorisCluster, componentType v1.ComponentType) co
 	return pts
 }
 
+// for disaggregated cluster.
 func NewPodTemplateSpecWithCommonSpec(cs *dv1.CommonSpec, componentType dv1.DisaggregatedComponentType) corev1.PodTemplateSpec {
 	var vs []corev1.Volume
 	si := cs.SystemInitialization
@@ -729,6 +730,40 @@ func getMultiSecretVolumeAndVolumeMount(bSpec *v1.BaseSpec, componentType v1.Com
 	return volumes, volumeMounts
 }
 
+func GetMultiSecretVolumeAndVolumeMountWithCommonSpec(cSpec *dv1.CommonSpec) ([]corev1.Volume, []corev1.VolumeMount) {
+	var volumes []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
+
+	defaultMountPath := secret_config_path
+
+	for _, secret := range cSpec.Secrets {
+		path := secret.MountPath
+		if secret.MountPath == "" {
+			path = defaultMountPath
+		}
+		volumes = append(
+			volumes,
+			corev1.Volume{
+				Name: secret.SecretName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: secret.SecretName,
+					},
+				},
+			},
+		)
+
+		volumeMounts = append(
+			volumeMounts,
+			corev1.VolumeMount{
+				Name:      secret.SecretName,
+				MountPath: path,
+			},
+		)
+	}
+	return volumes, volumeMounts
+}
+
 func LivenessProbe(port, timeout int32, path string, commands []string, pt ProbeType) *corev1.Probe {
 	return livenessProbe(port, timeout, path, commands, pt)
 }
@@ -787,7 +822,7 @@ func lifeCycle(preStopScriptPath string) *corev1.Lifecycle {
 	}
 }
 
-func LifeCycleWithPreStopScript(lc *corev1.Lifecycle, preStopScript string) {
+func LifeCycleWithPreStopScript(lc *corev1.Lifecycle, preStopScript string) *corev1.Lifecycle {
 	if lc == nil {
 		lc = &corev1.Lifecycle{
 			PreStop: &corev1.LifecycleHandler{
@@ -797,7 +832,7 @@ func LifeCycleWithPreStopScript(lc *corev1.Lifecycle, preStopScript string) {
 			},
 		}
 
-		return
+		return lc
 	}
 
 	lc.PreStop = &corev1.LifecycleHandler{
@@ -805,6 +840,7 @@ func LifeCycleWithPreStopScript(lc *corev1.Lifecycle, preStopScript string) {
 			Command: []string{preStopScript},
 		},
 	}
+	return lc
 }
 
 // getProbe describe a health check.
@@ -824,7 +860,7 @@ func getProbe(port int32, path string, commands []string, pt ProbeType) corev1.P
 func getTcpSocket(port int32) corev1.ProbeHandler {
 	return corev1.ProbeHandler{
 		TCPSocket: &corev1.TCPSocketAction{
-			Port: intstr.FromInt(int(port)),
+			Port: intstr.FromInt32(port),
 		},
 	}
 }
