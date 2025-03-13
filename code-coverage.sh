@@ -15,20 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-apiVersion: disaggregated.cluster.doris.com/v1
-kind: DorisDisaggregatedCluster
-metadata:
-  name: test-disaggregated-cluster
-spec:
-  metaService:
-    image: apache/doris:ms-3.0.3
-    fdb:
-      # fdb endpoint string from '$FDB_HOME/conf/fdb.cluster' by server direct deployment
-      address: ${fdb_endpoint}
-  feSpec:
-    replicas: 2
-    image: apache/doris:fe-3.0.3
-  computeGroups:
-    - uniqueId: cg1
-      replicas: 3
-      image: apache/doris:be-3.0.3
+
+#!/bin/bash
+#
+
+go test ./... -cover -coverprofile=cover.out
+go tool cover -func=cover.out
+

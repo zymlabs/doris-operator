@@ -15,22 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-/*
-Copyright 2023.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package v1
 
 import (
@@ -64,6 +48,28 @@ type DorisClusterSpec struct {
 	// the name of secret that type is `kubernetes.io/basic-auth` and contains keys username, password for management doris node in cluster as fe, be register.
 	// the password key is `password`. the username defaults to `root` and is omitempty.
 	AuthSecret string `json:"authSecret,omitempty"`
+
+	// EnableRestartWhenConfigChange configmap monitoring, default is false.
+	// When EnableRestartWhenConfigChange is true, changing the doris core configmap will cause a rolling restart of the corresponding node
+	EnableRestartWhenConfigChange bool `json:"enableRestartWhenConfigChange,omitempty"`
+
+	// KerberosInfo contains a series of access key files, Provides access to kerberos.
+	KerberosInfo *KerberosInfo `json:"kerberosInfo,omitempty"`
+}
+
+type KerberosInfo struct {
+	// Krb5ConfigMap is the name of configmap within 'krb5.conf'
+	Krb5ConfigMap string `json:"krb5ConfigMap,omitempty"`
+
+	// SecretName is the name of sercet within '*.keytab' files,
+	// refer to the following command to create a Secret :
+	// 	'kubectl create secret generic {secret-name} --from-file=. '
+	KeytabSecretName string `json:"keytabSecretName,omitempty"`
+
+	// KeytabPath is the path where the Secret is finally stored inside the pod. default '/etc/keytab/'.
+	// It is not recommended to modify it unless necessary.
+	// This path is the path filled in when configuring "hadoop.kerberos.keytab".
+	KeytabPath string `json:"keytabPath,omitempty"`
 }
 
 // AdminUser describe administrator for manage components in specified cluster.
@@ -95,6 +101,16 @@ type BeSpec struct {
 	// Please confirm whether the host machine and k8s cluster allow it.
 	// Doris workloadgroup reference document: https://doris.apache.org/docs/admin-manual/resource-admin/workload-group
 	EnableWorkloadGroup bool `json:"enableWorkloadGroup,omitempty"`
+
+	// SkipDefaultSystemInit is a switch that skips the default initialization and is used to set the default environment configuration required by the doris BE node.
+	// Default value is 'false'.
+	// Default System Init means that the container must be started in privileged mode.
+	// Default System Init configuration is implemented through the initContainers of the pod, so changes to this configuration may be ignored by k8s when it is not the first deployment.
+	SkipDefaultSystemInit bool `json:"skipDefaultSystemInit,omitempty"`
+
+	//EnableFeAffinity schedule the be pod on the hosts that have fe pod. when in test situation or have 3 fe and 3 be nodes, and wants one fe and one be in same host.
+	//the weight of antiAffinity in same node is greater than this affinity.
+	EnableFeAffinity bool `json:"enableFeAffinity,omitempty"`
 }
 
 // FeAddress specify the fe address, please set it when you deploy fe outside k8s or deploy components use crd except fe, if not set .
@@ -119,6 +135,8 @@ type Endpoints struct {
 type CnSpec struct {
 	//the foundation spec for creating cn software services.
 	BaseSpec `json:",inline"`
+
+	SkipDefaultSystemInit bool `json:"skipDefaultSystemInit,omitempty"`
 
 	//AutoScalingPolicy auto scaling strategy
 	AutoScalingPolicy *AutoScalingPolicy `json:"autoScalingPolicy,omitempty"`
@@ -390,6 +408,8 @@ type ComponentStatus struct {
 	// DorisComponentStatus represents the status of a doris component.
 	//the name of fe service exposed for user.
 	AccessService string `json:"accessService,omitempty"`
+
+	CoreConfigMapHashValue string `json:"coreConfigMapHashValue,omitempty"`
 
 	//FailedInstances failed pod names.
 	FailedMembers []string `json:"failedInstances,omitempty"`

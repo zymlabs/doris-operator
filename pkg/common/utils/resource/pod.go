@@ -20,6 +20,7 @@ package resource
 import (
 	dv1 "github.com/apache/doris-operator/api/disaggregated/v1"
 	v1 "github.com/apache/doris-operator/api/doris/v1"
+	"github.com/apache/doris-operator/pkg/common/utils/kerberos"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -40,6 +41,11 @@ const (
 	fe_meta_path       = "/opt/apache-doris/fe/doris-meta"
 	fe_meta_name       = "fe-meta"
 
+	keytab_volume_name        = "keytab"
+	keytab_default_mount_path = "/etc/keytab"
+	krb5_volume_name          = "krb5"
+	krb5_default_mount_path   = "/etc/krb5"
+
 	HEALTH_API_PATH            = "/api/health"
 	HEALTH_BROKER_LIVE_COMMAND = "/opt/apache-doris/broker_is_alive.sh"
 	FE_PRESTOP                 = "/opt/apache-doris/fe_prestop.sh"
@@ -47,13 +53,19 @@ const (
 	BROKER_PRESTOP             = "/opt/apache-doris/broker_prestop.sh"
 
 	//keys for pod env variables
-	POD_NAME             = "POD_NAME"
-	POD_IP               = "POD_IP"
-	HOST_IP              = "HOST_IP"
-	POD_NAMESPACE        = "POD_NAMESPACE"
-	ADMIN_USER           = "USER"
-	ADMIN_PASSWD         = "PASSWD"
-	DORIS_ROOT           = "DORIS_ROOT"
+	POD_NAME      = "POD_NAME"
+	POD_IP        = "POD_IP"
+	HOST_IP       = "HOST_IP"
+	POD_NAMESPACE = "POD_NAMESPACE"
+	ADMIN_USER    = "USER"
+	ADMIN_PASSWD  = "PASSWD"
+	DORIS_ROOT    = "DORIS_ROOT"
+
+	KRB5_MOUNT_PATH        = "KRB5_MOUNT_PATH"
+	KRB5_CONFIG            = "KRB5_CONFIG"
+	KEYTAB_MOUNT_PATH      = "KEYTAB_MOUNT_PATH"
+	KEYTAB_FINAL_USED_PATH = "KEYTAB_FINAL_USED_PATH"
+
 	DEFAULT_ADMIN_USER   = "root"
 	DEFAULT_ROOT_PATH    = "/opt/apache-doris"
 	POD_INFO_PATH        = "/etc/podinfo"
@@ -86,6 +98,7 @@ func NewPodTemplateSpec(dcr *v1.DorisCluster, componentType v1.ComponentType) co
 	var dcrAffinity *corev1.Affinity
 	var defaultInitContainers []corev1.Container
 	var SecurityContext *corev1.PodSecurityContext
+	var skipInit bool
 	switch componentType {
 	case v1.Component_FE:
 		volumes = newVolumesFromBaseSpec(dcr.Spec.FeSpec.BaseSpec)
@@ -97,10 +110,12 @@ func NewPodTemplateSpec(dcr *v1.DorisCluster, componentType v1.ComponentType) co
 		si = dcr.Spec.BeSpec.BaseSpec.SystemInitialization
 		dcrAffinity = dcr.Spec.BeSpec.BaseSpec.Affinity
 		SecurityContext = dcr.Spec.BeSpec.BaseSpec.SecurityContext
+		skipInit = dcr.Spec.BeSpec.SkipDefaultSystemInit
 	case v1.Component_CN:
 		si = dcr.Spec.CnSpec.BaseSpec.SystemInitialization
 		dcrAffinity = dcr.Spec.CnSpec.BaseSpec.Affinity
 		SecurityContext = dcr.Spec.CnSpec.BaseSpec.SecurityContext
+		skipInit = dcr.Spec.CnSpec.SkipDefaultSystemInit
 	case v1.Component_Broker:
 		si = dcr.Spec.BrokerSpec.BaseSpec.SystemInitialization
 		dcrAffinity = dcr.Spec.BrokerSpec.BaseSpec.Affinity
@@ -135,6 +150,11 @@ func NewPodTemplateSpec(dcr *v1.DorisCluster, componentType v1.ComponentType) co
 		volumes = append(volumes, secretVolumes...)
 	}
 
+	if dcr.Spec.KerberosInfo != nil {
+		kerberosVolumes, _ := getKerberosVolumeAndVolumeMount(dcr.Spec.KerberosInfo)
+		volumes = append(volumes, kerberosVolumes...)
+	}
+
 	pts := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        GeneratePodTemplateName(dcr, componentType),
@@ -155,7 +175,7 @@ func NewPodTemplateSpec(dcr *v1.DorisCluster, componentType v1.ComponentType) co
 		},
 	}
 
-	constructInitContainers(componentType, &pts.Spec, si)
+	constructInitContainers(skipInit, componentType, &pts.Spec, si)
 	pts.Spec.Affinity = constructAffinity(dcrAffinity, componentType)
 
 	return pts
@@ -220,7 +240,7 @@ func ApplySecurityContext(containers []corev1.Container, securityContext *corev1
 	return containers
 }
 
-func constructInitContainers(componentType v1.ComponentType, podSpec *corev1.PodSpec, si *v1.SystemInitialization) {
+func constructInitContainers(skipInit bool, componentType v1.ComponentType, podSpec *corev1.PodSpec, si *v1.SystemInitialization) {
 	defaultImage := ""
 	var defaultInitContains []corev1.Container
 	if si != nil {
@@ -230,7 +250,7 @@ func constructInitContainers(componentType v1.ComponentType, podSpec *corev1.Pod
 	}
 
 	// the init containers have sequence，should confirm use initial is always in the first priority.
-	if componentType == v1.Component_BE || componentType == v1.Component_CN {
+	if !skipInit && (componentType == v1.Component_BE || componentType == v1.Component_CN) {
 		podSpec.InitContainers = append(podSpec.InitContainers, constructBeDefaultInitContainer(defaultImage))
 	}
 	podSpec.InitContainers = append(podSpec.InitContainers, defaultInitContains...)
@@ -349,13 +369,16 @@ func newBaseInitContainer(name string, si *v1.SystemInitialization) corev1.Conta
 func NewBaseMainContainer(dcr *v1.DorisCluster, config map[string]interface{}, componentType v1.ComponentType) corev1.Container {
 	command, args := getCommand(componentType)
 	var spec v1.BaseSpec
+	var skipInit bool
 	switch componentType {
 	case v1.Component_FE:
 		spec = dcr.Spec.FeSpec.BaseSpec
 	case v1.Component_BE:
 		spec = dcr.Spec.BeSpec.BaseSpec
+		skipInit = dcr.Spec.BeSpec.SkipDefaultSystemInit
 	case v1.Component_CN:
 		spec = dcr.Spec.CnSpec.BaseSpec
+		skipInit = dcr.Spec.BeSpec.SkipDefaultSystemInit
 	case v1.Component_Broker:
 		spec = dcr.Spec.BrokerSpec.BaseSpec
 	default:
@@ -364,7 +387,13 @@ func NewBaseMainContainer(dcr *v1.DorisCluster, config map[string]interface{}, c
 	volumeMounts := buildVolumeMounts(spec, componentType)
 	var envs []corev1.EnvVar
 	envs = append(envs, buildBaseEnvs(dcr)...)
+	envs = append(envs, buildKerberosEnv(dcr.Spec.KerberosInfo, config, componentType)...)
 	envs = mergeEnvs(envs, spec.EnvVars)
+	if skipInit {
+		// Only works when the doris version is higher than 2.1.8 or 3.0.4
+		// When the environment variable SKIP_CHECK_ULIMIT=true is passed in, the start_be.sh will not check system parameters like ulimit and vm.max_map_count etc.
+		envs = append(envs, corev1.EnvVar{Name: "SKIP_CHECK_ULIMIT", Value: "true"})
+	}
 
 	if len(GetMountConfigMapInfo(spec.ConfigMapInfo)) != 0 {
 		_, configVolumeMounts := getMultiConfigVolumeAndVolumeMount(&spec.ConfigMapInfo, componentType)
@@ -374,6 +403,11 @@ func NewBaseMainContainer(dcr *v1.DorisCluster, config map[string]interface{}, c
 	if len(spec.Secrets) != 0 {
 		_, secretVolumeMounts := getMultiSecretVolumeAndVolumeMount(&spec, componentType)
 		volumeMounts = append(volumeMounts, secretVolumeMounts...)
+	}
+
+	if dcr.Spec.KerberosInfo != nil {
+		_, kerberosVolumeMounts := getKerberosVolumeAndVolumeMount(dcr.Spec.KerberosInfo)
+		volumeMounts = append(volumeMounts, kerberosVolumeMounts...)
 	}
 
 	// add basic auth secret volumeMount
@@ -468,6 +502,51 @@ func buildBaseEnvs(dcr *v1.DorisCluster) []corev1.EnvVar {
 	return defaultEnvs
 }
 
+func buildKerberosEnv(info *v1.KerberosInfo, config map[string]interface{}, componentType v1.ComponentType) []corev1.EnvVar {
+	if info == nil {
+		return nil
+	}
+
+	var krb5ConfPath string
+	switch componentType {
+	case v1.Component_FE:
+		krb5ConfPath = kerberos.GetKrb5ConfFromJavaOpts(config)
+	case v1.Component_BE, v1.Component_CN:
+		// be config krb5.conf file must set 'kerberos_krb5_conf_path' in be.conf
+		// https://doris.apache.org/docs/3.0/lakehouse/datalake-analytics/hive?_highlight=kerberos_krb5_conf_path#connect-to-kerberos-enabled-hive
+		if value, exists := config["kerberos_krb5_conf_path"]; exists {
+			krb5ConfPath = value.(string)
+		} else {
+			krb5ConfPath = kerberos.KRB5_DEFAULT_CONFIG
+		}
+	}
+
+	keytabFinalUsedPath := keytab_default_mount_path
+	if info.KeytabPath != "" {
+		keytabFinalUsedPath = info.KeytabPath
+	}
+
+	return []corev1.EnvVar{
+
+		{
+			Name:  KRB5_MOUNT_PATH,
+			Value: krb5_default_mount_path,
+		},
+		{
+			Name:  KRB5_CONFIG,
+			Value: krb5ConfPath,
+		},
+		{
+			Name:  KEYTAB_MOUNT_PATH,
+			Value: keytab_default_mount_path,
+		},
+		{
+			Name:  KEYTAB_FINAL_USED_PATH,
+			Value: keytabFinalUsedPath,
+		},
+	}
+}
+
 func buildEnvFromPod() []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
@@ -501,6 +580,7 @@ func buildEnvFromPod() []corev1.EnvVar {
 	}
 }
 
+// GetPodDefaultEnv is currently only used in disaggregated
 func GetPodDefaultEnv() []corev1.EnvVar {
 	return buildEnvFromPod()
 }
@@ -761,6 +841,45 @@ func GetMultiSecretVolumeAndVolumeMountWithCommonSpec(cSpec *dv1.CommonSpec) ([]
 			},
 		)
 	}
+	return volumes, volumeMounts
+}
+
+func getKerberosVolumeAndVolumeMount(kerberosInfo *v1.KerberosInfo) ([]corev1.Volume, []corev1.VolumeMount) {
+	var volumes []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
+
+	// krb5
+	volumes = append(volumes, corev1.Volume{
+		Name: krb5_volume_name,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: kerberosInfo.Krb5ConfigMap,
+				},
+			},
+		},
+	})
+
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      krb5_volume_name,
+		MountPath: krb5_default_mount_path,
+	})
+
+	// keytab
+	volumes = append(volumes, corev1.Volume{
+		Name: keytab_volume_name,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: kerberosInfo.KeytabSecretName,
+			},
+		},
+	})
+
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      keytab_volume_name,
+		MountPath: keytab_default_mount_path,
+	})
+
 	return volumes, volumeMounts
 }
 

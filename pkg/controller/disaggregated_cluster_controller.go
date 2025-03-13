@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"time"
 )
 
@@ -102,7 +101,7 @@ func (dc *DisaggregatedClusterReconciler) SetupWithManager(mgr ctrl.Manager) err
 
 func (dc *DisaggregatedClusterReconciler) watchPodBuilder(builder *ctrl.Builder) *ctrl.Builder {
 	mapFn := handler.EnqueueRequestsFromMapFunc(
-		func(a client.Object) []reconcile.Request {
+		func(ctx context.Context, a client.Object) []reconcile.Request {
 			labels := a.GetLabels()
 			dorisName := labels[dv1.DorisDisaggregatedClusterName]
 			if dorisName != "" {
@@ -141,7 +140,7 @@ func (dc *DisaggregatedClusterReconciler) watchPodBuilder(builder *ctrl.Builder)
 		},
 	}
 
-	return builder.Watches(&source.Kind{Type: &corev1.Pod{}},
+	return builder.Watches(&corev1.Pod{},
 		mapFn, controller_builder.WithPredicates(p))
 }
 
@@ -318,11 +317,18 @@ func (dc *DisaggregatedClusterReconciler) updateObjectORStatus(ctx context.Conte
 		return res, err
 	}
 
+	//if decommissioning, be is migrating data should wait it over, so return reconciling after 10 seconds.
 	for _, cgs := range ddc.Status.ComputeGroupStatuses {
 		if cgs.Phase == dv1.Decommissioning {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	}
+
+	// If the cluster status is abnormal(Health is not Green), reconciling is required.
+	if ddc.Status.ClusterHealth.Health != dv1.Green {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	return res, nil
 
 }

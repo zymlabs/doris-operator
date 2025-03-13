@@ -16,7 +16,7 @@
 # under the License.
 
 # Build the manager binary
-FROM golang:1.22 AS builder
+FROM golang:1.23 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -38,7 +38,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o do
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM selectdb/operator-static:nonroot
+# FROM selectdb/operator-static:nonroot
+FROM apache/doris:operator-static-nonroot
 WORKDIR /
 COPY --from=builder /workspace/dorisoperator .
 USER 65532:65532
